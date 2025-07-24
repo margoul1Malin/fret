@@ -1,26 +1,31 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Configuration Tailwind CSS v4 */
+@theme {
+  --color-primary: #722F37;
+  --color-primary-beige: #F5F5DC;
+  --color-light-beige: #FAF9F6;
+  --color-dark-beige: #E6E2D3;
+  --color-bordeaux: #722F37;
+  --color-light-bordeaux: #8B4348;
+  --color-dark-bordeaux: #5C252A;
+  --color-success: #28A745;
+  --color-warning: #FFC107;
+  --color-error: #DC3545;
+  --color-info: #17A2B8;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  background-color: #FAF9F6;
+  color: #343A40;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+

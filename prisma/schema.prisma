@@ -1,0 +1,565 @@
+// Schéma Prisma pour SendUp - Le BlaBlacar des marchandises
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  CLIENT
+  TRANSPORTER
+  ADMIN
+}
+
+enum VehicleType {
+  VL // Véhicule Léger
+  PL // Poids Lourd
+}
+
+enum ShipmentStatus {
+  PENDING
+  ACCEPTED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+enum TripStatus {
+  AVAILABLE
+  FULL
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DocumentType {
+  KBIS
+  INSURANCE
+  VEHICLE_REGISTRATION
+  TRANSPORT_CAPACITY
+  DRIVING_LICENSE
+}
+
+model User {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  email       String   @unique
+  password    String?
+  firstName   String
+  lastName    String
+  phone       String?
+  avatar      String?
+  companyName String?  // Nom de l'entreprise (optionnel, surtout pour les transporteurs)
+  userType    UserType
+  isVerified  Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  rating      Float    @default(0)
+  reviewCount Int      @default(0)
+  
+  // Authentification
+  googleId     String?
+  lastLoginAt  DateTime?
+  
+  // Dates de suivi
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Adresses
+  addresses   Address[]
+  
+  // Relations transporteur
+  vehicles    Vehicle[]
+  trips       Trip[]
+  documents   Document[]
+  expeditionOffers ExpeditionOffer[] // Offres sur les expéditions
+  
+  // Relations client
+  shipments   Shipment[]
+  expeditions Expedition[] @relation("ClientExpeditions")
+  
+  // Relations communes
+  sentMessages     Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+  contactRequests  ContactRequest[] // Demandes de contact
+  reviews          Review[]  @relation("ReviewsGiven")
+  receivedReviews  Review[]  @relation("ReviewsReceived")
+  notifications    Notification[]
+  payments         Payment[]
+  
+  // Nouvelles relations pour les trajets
+  courses          Course[]        @relation("TransporterCourses")
+  bookings         CourseBooking[] @relation("ClientBookings")
+  
+  @@map("users")
+  @@index([googleId])
+}
+
+model Address {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  userId   String @db.ObjectId
+  name     String
+  street   String
+  city     String
+  zipCode  String
+  country  String @default("France")
+  lat      Float?
+  lng      Float?
+  isDefault Boolean @default(false)
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("addresses")
+}
+
+model Vehicle {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  transporterId String     @db.ObjectId
+  type         VehicleType
+  brand        String
+  model        String
+  year         Int
+  licensePlate String     @unique
+  maxWeight    Float      // en kg
+  maxVolume    Float      // en m³
+  maxLength    Float?     // en m (pour PL)
+  maxWidth     Float?     // en m (pour PL)
+  maxHeight    Float?     // en m (pour PL)
+  isActive     Boolean    @default(true)
+  
+  transporter User  @relation(fields: [transporterId], references: [id], onDelete: Cascade)
+  trips       Trip[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("vehicles")
+}
+
+model Document {
+  id           String       @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String       @db.ObjectId
+  type         DocumentType
+  fileName     String
+  fileUrl      String
+  isVerified   Boolean      @default(false)
+  expiresAt    DateTime?
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("documents")
+}
+
+model Trip {
+  id              String     @id @default(auto()) @map("_id") @db.ObjectId
+  transporterId   String     @db.ObjectId
+  vehicleId       String     @db.ObjectId
+  
+  // Itinéraire
+  departureCity   String
+  departureLat    Float
+  departureLng    Float
+  arrivalCity     String
+  arrivalLat      Float
+  arrivalLng      Float
+  distance        Float      // en km
+  
+  // Horaires
+  departureDate   DateTime
+  arrivalDate     DateTime?
+  isRecurrent     Boolean    @default(false)
+  recurrentDays   String[]   // ["monday", "tuesday", ...]
+  
+  // Capacité
+  availableWeight Float      // en kg
+  availableVolume Float      // en m³
+  
+  // Tarification
+  pricePerKm      Float
+  pricePerKg      Float
+  pricePerM3      Float
+  
+  status          TripStatus @default(AVAILABLE)
+  description     String?
+  
+  transporter User      @relation(fields: [transporterId], references: [id], onDelete: Cascade)
+  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  shipments   Shipment[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("trips")
+}
+
+model Shipment {
+  id              String         @id @default(auto()) @map("_id") @db.ObjectId
+  clientId        String         @db.ObjectId
+  tripId          String?        @db.ObjectId
+  
+  // Expédition
+  pickupAddress   String
+  pickupLat       Float
+  pickupLng       Float
+  deliveryAddress String
+  deliveryLat     Float
+  deliveryLng     Float
+  
+  // Colis
+  weight          Float          // en kg
+  volume          Float          // en m³
+  length          Float?         // en m
+  width           Float?         // en m
+  height          Float?         // en m
+  description     String
+  value           Float?         // valeur déclarée
+  isFragile       Boolean        @default(false)
+  
+  // Horaires souhaités
+  pickupDate      DateTime
+  deliveryDate    DateTime?
+  
+  // Contraintes
+  requiresPL      Boolean        @default(false)
+  
+  status          ShipmentStatus @default(PENDING)
+  estimatedPrice  Float?
+  finalPrice      Float?
+  
+  client   User  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  trip     Trip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  messages Message[]
+  tracking TrackingEvent[]
+  courseBookings CourseBooking[] // Relation inverse pour CourseBooking
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("shipments")
+}
+
+model Message {
+  id         String @id @default(auto()) @map("_id") @db.ObjectId
+  senderId   String @db.ObjectId
+  receiverId String @db.ObjectId
+  shipmentId String? @db.ObjectId
+  content    String
+  isRead     Boolean @default(false)
+  
+  sender    User      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver  User      @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  shipment  Shipment? @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@map("messages")
+}
+
+model Review {
+  id         String @id @default(auto()) @map("_id") @db.ObjectId
+  reviewerId String @db.ObjectId
+  reviewedId String @db.ObjectId
+  shipmentId String? @db.ObjectId
+  rating     Int    // 1-5
+  comment    String?
+  
+  reviewer User @relation("ReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewed User @relation("ReviewsReceived", fields: [reviewedId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@map("reviews")
+}
+
+model Notification {
+  id      String  @id @default(auto()) @map("_id") @db.ObjectId
+  userId  String  @db.ObjectId
+  title   String
+  message String
+  type    String  // "shipment", "trip", "payment", "system"
+  isRead  Boolean @default(false)
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@map("notifications")
+}
+
+model Payment {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  shipmentId    String?  @db.ObjectId
+  stripeId      String?  @unique
+  amount        Float    // en centimes
+  commission    Float    // commission SendUp (20%)
+  status        String   // "pending", "completed", "failed", "refunded"
+  paymentMethod String   // "card", "paypal"
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("payments")
+}
+
+model TrackingEvent {
+  id         String @id @default(auto()) @map("_id") @db.ObjectId
+  shipmentId String @db.ObjectId
+  status     String
+  message    String
+  location   String?
+  lat        Float?
+  lng        Float?
+  
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@map("tracking_events")
+}
+
+// Modèle Course (Trajet) pour les transporteurs
+model Course {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  transporterId  String   @db.ObjectId
+  
+  // Informations du trajet
+  departure      String   // Ville/adresse de départ
+  arrival        String   // Ville/adresse d'arrivée
+  stops          String[] // Escales intermédiaires (array de villes)
+  route          String?  // Route détaillée (pour calcul kilomètres plus tard)
+  
+  // Planning
+  departureDate  DateTime // Date et heure de départ
+  estimatedArrival DateTime? // Estimation d'arrivée (optionnel)
+  
+  // Capacité et tarification
+  maxWeight      Float    // Poids maximum en kg qu'il peut charger
+  pricePerKg     Float    // Prix par kg
+  minPackageWeight Float  @default(0) // Poids minimum par colis
+  maxPackageWeight Float? // Poids maximum par colis (optionnel)
+  
+  // Informations complémentaires
+  description    String   // Message/description du trajet
+  availableSpace Int      @default(1) // Nombre de colis/places disponibles
+  vehicleType    VehicleType? // Type de véhicule utilisé
+  
+  // Statut
+  status         CourseStatus @default(AVAILABLE)
+  isActive       Boolean  @default(true)
+  
+  // Relations
+  transporter    User     @relation("TransporterCourses", fields: [transporterId], references: [id], onDelete: Cascade)
+  bookings       CourseBooking[] // Réservations sur ce trajet
+  
+  // Dates de suivi
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  @@map("courses")
+}
+
+// Modèle de réservation sur un trajet
+model CourseBooking {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  courseId    String   @db.ObjectId
+  clientId    String   @db.ObjectId
+  shipmentId  String?  @db.ObjectId
+  
+  // Détails de la réservation
+  packageWeight Float   // Poids du colis réservé
+  packageCount  Int     @default(1) // Nombre de colis
+  totalPrice    Float   // Prix total calculé
+  pickupPoint   String  // Point de ramassage
+  deliveryPoint String  // Point de livraison
+  
+  // Statut
+  status        BookingStatus @default(PENDING)
+  
+  // Relations
+  course        Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  client        User      @relation("ClientBookings", fields: [clientId], references: [id], onDelete: Cascade)
+  shipment      Shipment? @relation(fields: [shipmentId], references: [id])
+  
+  // Dates
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@map("course_bookings")
+}
+
+// Modèle Expedition pour les expéditeurs
+model Expedition {
+  id              String           @id @default(auto()) @map("_id") @db.ObjectId
+  clientId        String           @db.ObjectId
+  
+  // Informations de transport
+  departureAddress String          // Adresse complète de départ
+  departureCity    String          // Ville de départ (extraite)
+  departurePostalCode String?      // Code postal de départ
+  arrivalAddress   String          // Adresse complète d'arrivée
+  arrivalCity      String          // Ville d'arrivée (extraite)
+  arrivalPostalCode String?        // Code postal d'arrivée
+  departureDate    DateTime        // Date de départ souhaitée (sans heure)
+  
+  // Détails du colis/marchandise
+  weight          Float            // Poids en kg
+  volume          Float            // Volume en m³
+  description     String           // Description du colis
+  value           Float?           // Valeur déclarée (optionnel)
+  isFragile       Boolean          @default(false)
+  
+  // Contraintes et préférences
+  requiresPL      Boolean          @default(false) // Nécessite un poids lourd
+  urgency         String           @default("normal") // "low", "normal", "high"
+  
+  // Budget et tarification
+  maxBudget       Float?           // Budget maximum accepté
+  currentOffers   Int              @default(0) // Nombre d'offres reçues
+  selectedOffer   Float?           // Prix de l'offre sélectionnée
+  
+  // Statut et suivi
+  status          ExpeditionStatus @default(DRAFT)
+  isActive        Boolean          @default(true)
+  notes           String?          // Notes internes du client
+  
+  // Relations
+  client          User             @relation("ClientExpeditions", fields: [clientId], references: [id], onDelete: Cascade)
+  offers          ExpeditionOffer[] // Offres des transporteurs
+  
+  // Dates de suivi
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  
+  @@map("expeditions")
+}
+
+// Modèle pour les offres des transporteurs sur les expéditions
+model ExpeditionOffer {
+  id            String     @id @default(auto()) @map("_id") @db.ObjectId
+  expeditionId  String     @db.ObjectId
+  transporterId String     @db.ObjectId
+  
+  // Détails de l'offre
+  price         Float      // Prix proposé
+  pickupDate    DateTime   // Date de ramassage proposée
+  deliveryDate  DateTime   // Date de livraison estimée
+  message       String?    // Message du transporteur
+  
+  // Statut de l'offre
+  status        OfferStatus @default(PENDING)
+  isSelected    Boolean    @default(false)
+  
+  // Relations
+  expedition    Expedition @relation(fields: [expeditionId], references: [id], onDelete: Cascade)
+  transporter   User       @relation(fields: [transporterId], references: [id], onDelete: Cascade)
+  
+  // Dates
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  
+  @@map("expedition_offers")
+}
+
+enum OfferStatus {
+  PENDING   // En attente de réponse du client
+  ACCEPTED  // Acceptée par le client
+  DECLINED  // Refusée par le client
+  EXPIRED   // Expirée
+}
+enum CourseStatus {
+  AVAILABLE   // Trajet disponible pour réservations
+  FULL        // Trajet complet
+  IN_PROGRESS // Trajet en cours
+  COMPLETED   // Trajet terminé
+  CANCELLED   // Trajet annulé
+}
+
+enum BookingStatus {
+  PENDING     // Réservation en attente de confirmation
+  CONFIRMED   // Réservation confirmée
+  PICKED_UP   // Colis récupéré
+  DELIVERED   // Colis livré
+  CANCELLED   // Réservation annulée
+}
+
+enum ExpeditionStatus {
+  DRAFT       // Brouillon
+  PUBLISHED   // Publiée (en attente d'offres)
+  OFFERS_RECEIVED // Offres reçues
+  ASSIGNED    // Assignée à un transporteur
+  IN_TRANSIT  // En cours de transport
+  DELIVERED   // Livrée
+  CANCELLED   // Annulée
+}
+
+// Modèle pour les demandes de contact
+model ContactRequest {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  
+  // Informations du demandeur
+  firstName String
+  lastName  String
+  email     String
+  phone     String?
+  company   String?
+  
+  // Type de demande
+  subject   ContactSubject
+  priority  ContactPriority @default(NORMAL)
+  
+  // Contenu
+  message   String
+  
+  // Statut de traitement
+  status    ContactStatus @default(PENDING)
+  
+  // Informations utilisateur (si connecté)
+  userId    String? @db.ObjectId
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  // Suivi admin
+  assignedTo    String?  // ID de l'admin qui traite la demande
+  adminNotes    String?  // Notes internes
+  resolvedAt    DateTime?
+  
+  // Dates
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("contact_requests")
+}
+
+enum ContactSubject {
+  GENERAL         // Question générale
+  TECHNICAL       // Problème technique
+  BILLING         // Facturation
+  ACCOUNT         // Compte utilisateur
+  TRANSPORT       // Questions transport
+  BUG_REPORT      // Signalement de bug
+  FEATURE_REQUEST // Demande de fonctionnalité
+  OTHER           // Autre
+}
+
+enum ContactPriority {
+  LOW     // Faible
+  NORMAL  // Normal
+  HIGH    // Élevée
+  URGENT  // Urgent
+}
+
+enum ContactStatus {
+  PENDING     // En attente
+  IN_PROGRESS // En cours de traitement
+  RESOLVED    // Résolu
+  CLOSED      // Fermé
+}
+
+
